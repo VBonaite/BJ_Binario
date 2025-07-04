@@ -82,22 +82,22 @@ TipoMao tipo_mao(uint64_t mao) {
     }
     return MAO_HARD;
 }
-
-static int rank_from_carta_bits(uint64_t card_bits) {
-#if defined(__GNUC__)
-    int idx = __builtin_ctzll(card_bits) / 3;
-#else
-    int idx = 0;
-    while ((card_bits & 0x7ULL) == 0) {
-        card_bits >>= 3;
-        ++idx;
-    }
-#endif
-    if (idx <= 7) return idx + 2;      // 2-9
-    if (idx == 8) return 10;           // 10
-    if (idx >= 9 && idx <= 11) return 10; // J Q K
-    return 11;                         // Ace
-}
+// Função auxiliar - pode ser útil para debugging
+//static int rank_from_carta_bits(uint64_t card_bits) {
+//#if defined(__GNUC__)
+//    int idx = __builtin_ctzll(card_bits) / 3;
+//#else
+//    int idx = 0;
+//    while ((card_bits & 0x7ULL) == 0) {
+//        card_bits >>= 3;
+//        ++idx;
+//    }
+//#endif
+//    if (idx <= 7) return idx + 2;      // 2-9
+//    if (idx == 8) return 10;           // 10
+//    if (idx >= 9 && idx <= 11) return 10; // J Q K
+//    return 11;                         // Ace
+//}
 
 void avaliar_mao(uint64_t bits, Mao *out) {
     out->bits = bits;
@@ -160,7 +160,7 @@ const char* acao_to_str(AcaoEstrategia a) {
 }
 
 
-static Carta comprar_carta_e_adicionar(Mao *mao, Shoe *shoe, double *running_count, double *true_count) {
+static Carta comprar_carta_e_adicionar(Mao *mao, Shoe *shoe, double *running_count, double *true_count, FILE *count_file, int shoe_num) {
     Carta c = baralho_comprar(shoe);
     mao->bits += c;
 	if (running_count) {
@@ -170,6 +170,10 @@ static Carta comprar_carta_e_adicionar(Mao *mao, Shoe *shoe, double *running_cou
             int decks_restantes = (cartas_restantes + 26) / 52;
             if (decks_restantes < 1) decks_restantes = 1;
             *true_count = *running_count / decks_restantes;
+			if (count_file && shoe_num == 0) {
+                char carta_char = carta_para_char(c);
+                fprintf(count_file, "%c,%.1f,%.2f,%d\n", carta_char, *running_count, *true_count, decks_restantes);
+            }
         }
     }
 
@@ -203,7 +207,8 @@ static void inicializar_mao(Mao *mao, uint64_t bits, bool from_split) {
     mao->resultado = '?';
 }
 
-Mao* jogar_mao(Mao *mao, Shoe *shoe, int dealer_up_rank, Mao *nova_mao_out) {
+
+Mao* jogar_mao(Mao *mao, Shoe *shoe, int dealer_up_rank, Mao *nova_mao_out, double *running_count, double *true_count) {
     if (mao->blackjack) {
         mao->finalizada = true;
         return NULL;
@@ -228,7 +233,7 @@ Mao* jogar_mao(Mao *mao, Shoe *shoe, int dealer_up_rank, Mao *nova_mao_out) {
                 break;
             case ACAO_HIT:
                 registrar_acao(mao, 'H');
-                comprar_carta_e_adicionar(mao, shoe);
+                comprar_carta_e_adicionar(mao, shoe, running_count, true_count);
                 if (mao->valor >= 21) {
                     mao->finalizada = true;
                 }
@@ -238,13 +243,13 @@ Mao* jogar_mao(Mao *mao, Shoe *shoe, int dealer_up_rank, Mao *nova_mao_out) {
             case ACAO_DOUBLE_OR_STAND: {
                 if (!mao->from_split) {
                     registrar_acao(mao, 'D');
-                    comprar_carta_e_adicionar(mao, shoe);
+                	comprar_carta_e_adicionar(mao, shoe, running_count, true_count);
                     mao->finalizada = true;;
                     mao->isdouble = true;
                 } else {
                     if (ac == ACAO_DOUBLE_OR_HIT) {
                         registrar_acao(mao, 'H');
-                        comprar_carta_e_adicionar(mao, shoe);
+		                comprar_carta_e_adicionar(mao, shoe, running_count, true_count);
                         if (mao->valor >= 21) mao->finalizada = true;
                     } else { // fallback stand
                         registrar_acao(mao, 'S');
@@ -271,7 +276,7 @@ Mao* jogar_mao(Mao *mao, Shoe *shoe, int dealer_up_rank, Mao *nova_mao_out) {
                     // cannot split, treat fallback
                     if (ac == ACAO_SPLIT_OR_HIT) {
                         registrar_acao(mao, 'H');
-                        comprar_carta_e_adicionar(mao, shoe);
+		                comprar_carta_e_adicionar(mao, shoe, running_count, true_count);
                     } else {
                         registrar_acao(mao, 'S');
                         mao->finalizada = true;
@@ -290,8 +295,8 @@ Mao* jogar_mao(Mao *mao, Shoe *shoe, int dealer_up_rank, Mao *nova_mao_out) {
                 inicializar_mao(nova_mao_out, rank_bit, true);
 
                 // Give each hand one card
-                comprar_carta_e_adicionar(mao, shoe);
-                comprar_carta_e_adicionar(nova_mao_out, shoe);
+                comprar_carta_e_adicionar(mao, shoe, running_count, true_count);
+                comprar_carta_e_adicionar(nova_mao_out, shoe, running_count, true_count);
 
                 mao->from_split = true;
                 nova_mao_out->from_split = true;
