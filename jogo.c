@@ -3,6 +3,7 @@
 #include <stdbool.h>
 #include "tabela_estrategia.h"
 #include "baralho.h"
+#include "constantes.h"
 
 int calcular_valor_mao(uint64_t mao) {
     int valor = 0;
@@ -106,6 +107,9 @@ void avaliar_mao(uint64_t bits, Mao *out) {
     out->blackjack = (out->tipo == MAO_BLACKJACK);
     out->finalizada = false;
     out->from_split = false;
+    out->isdouble = false;
+    out->aposta = 0.0;
+    out->pnl = 0.0;
     out->hist_len = 0;
     out->historico[0] = '\0';
     out->resultado = '?';
@@ -155,9 +159,20 @@ const char* acao_to_str(AcaoEstrategia a) {
     }
 }
 
-static Carta comprar_carta_e_adicionar(Mao *mao, Shoe *shoe) {
+
+static Carta comprar_carta_e_adicionar(Mao *mao, Shoe *shoe, double *running_count, double *true_count) {
     Carta c = baralho_comprar(shoe);
     mao->bits += c;
+	if (running_count) {
+        *running_count += WONG_HALVES[carta_para_rank_idx(c)];
+        if (true_count) {
+            size_t cartas_restantes = shoe->total - shoe->topo;
+            int decks_restantes = (cartas_restantes + 26) / 52;
+            if (decks_restantes < 1) decks_restantes = 1;
+            *true_count = *running_count / decks_restantes;
+        }
+    }
+
     // atualizar valor / tipo / blackjack
     mao->valor = calcular_valor_mao(mao->bits);
     mao->tipo  = tipo_mao(mao->bits);
@@ -182,6 +197,9 @@ static void inicializar_mao(Mao *mao, uint64_t bits, bool from_split) {
     mao->hist_len = 0;
     avaliar_mao(bits, mao);
     mao->finalizada = false;
+    mao->isdouble = false;
+    mao->aposta = 0.0;
+    mao->pnl = 0.0;
     mao->resultado = '?';
 }
 
@@ -221,7 +239,8 @@ Mao* jogar_mao(Mao *mao, Shoe *shoe, int dealer_up_rank, Mao *nova_mao_out) {
                 if (!mao->from_split) {
                     registrar_acao(mao, 'D');
                     comprar_carta_e_adicionar(mao, shoe);
-                    mao->finalizada = true;
+                    mao->finalizada = true;;
+                    mao->isdouble = true;
                 } else {
                     if (ac == ACAO_DOUBLE_OR_HIT) {
                         registrar_acao(mao, 'H');
@@ -292,10 +311,10 @@ Mao* jogar_mao(Mao *mao, Shoe *shoe, int dealer_up_rank, Mao *nova_mao_out) {
     return NULL;
 }
 
-void avaliar_mao_dealer(Mao *dealer, Shoe *shoe) {
+void avaliar_mao_dealer(Mao *dealer, Shoe *shoe, double *running_count, double *true_count) {
     while (dealer->valor < 17) {
         registrar_acao(dealer, 'H');
-        comprar_carta_e_adicionar(dealer, shoe);
+        comprar_carta_e_adicionar(dealer, shoe, running_count, true_count);
     }
     dealer->finalizada = true;
 }
@@ -321,4 +340,28 @@ void verificar_mao(Mao *jog, const Mao *dealer){
         }
     }
     jog->resultado = res;
-} 
+}
+
+
+void calcular_pnl(Mao *mao) {
+    if (mao->resultado == 'V') {
+        if (mao->blackjack) {
+            mao->pnl = 1.5 * mao->aposta;
+        } else if (mao->isdouble) {
+            mao->pnl = 2.0 * mao->aposta;
+        } else {
+            mao->pnl = mao->aposta;
+        }
+    } else if (mao->resultado == 'E') {
+        mao->pnl = 0.0;
+    } else if (mao->resultado == 'D') {
+        if (mao->isdouble) {
+            mao->pnl = -2.0 * mao->aposta;
+        } else {
+            mao->pnl = -mao->aposta;
+        }
+    }
+}
+
+
+ 

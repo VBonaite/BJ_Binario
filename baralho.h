@@ -16,7 +16,7 @@ void baralho_criar(Shoe *shoe);
 void baralho_embaralhar(Shoe *shoe);
 Carta baralho_comprar(Shoe *shoe);
 void baralho_destruir(Shoe *shoe);
-
 char carta_para_char(Carta c);
+int carta_para_rank_idx(Carta c);
 
 #endif // BARALHO_H 

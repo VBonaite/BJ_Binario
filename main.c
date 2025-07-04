@@ -2,6 +2,6 @@
 #include "simulacao.h"
 
 int main(void) {
-    simulacao_uma_distribuicao();
+	simulacao_completa();
     return 0;
 } 

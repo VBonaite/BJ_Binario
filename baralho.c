@@ -67,3 +67,17 @@ char carta_para_char(Carta c) {
 #endif
     return RANK_CHARS[idx];
 } 
+
+int carta_para_rank_idx(Carta c) {
+#if defined(__GNUC__)
+    return __builtin_ctzll(c) / 3;
+#else
+    int idx = 0;
+    while ((c & 0x7ULL) == 0) {
+        c >>= 3;
+        ++idx;
+    }
+    return idx;
+#endif
+}
+

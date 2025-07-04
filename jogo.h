@@ -25,6 +25,9 @@ typedef struct {
     TipoMao tipo;
     bool finalizada;
     bool from_split;
+    bool isdouble;
+    double aposta;
+    double pnl;
     char historico[32];
     int hist_len;
     char resultado;
@@ -35,10 +38,10 @@ TipoMao tipo_mao(uint64_t mao);
 void avaliar_mao(uint64_t mao_bits, Mao *mao_out);
 AcaoEstrategia determinar_acao(const Mao *mao, uint64_t mao_bits, int dealer_up_rank);
 const char* acao_to_str(AcaoEstrategia a);
-Mao* jogar_mao(Mao *mao, Shoe *shoe, int dealer_up_rank, Mao *nova_mao_out);
-void avaliar_mao_dealer(Mao *dealer, Shoe *shoe);
+void avaliar_mao_dealer(Mao *dealer, Shoe *shoe, double *running_count, double *true_count);
+Mao* jogar_mao(Mao *mao, Shoe *shoe, int dealer_up_rank, Mao *nova_mao_out, double *running_count, double *true_count);
 void verificar_mao(Mao *jogador, const Mao *dealer);
-
+void calcular_pnl(Mao *mao);
 #ifdef __cplusplus
 }
 #endif
