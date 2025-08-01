@@ -590,31 +590,14 @@ void simulacao_completa(int log_level, int sim_id, const char* output_suffix, at
                     // Calcular qual lote esta simulação pertence
                     int batch_id = sim_id / 20000; // Usar batch size de 20k como outros
                     char insurance_filepath[512];
-                    snprintf(insurance_filepath, sizeof(insurance_filepath), "%s/temp_insurance_batch_%d.bin", OUT_DIR, batch_id);
+                    snprintf(insurance_filepath, sizeof(insurance_filepath), "%s%d%s", INSURANCE_TEMP_FILE_PREFIX, batch_id, BINARY_SUFFIX);
                     
                     FILE* insurance_file = fopen(insurance_filepath, "ab");
                     if (insurance_file) {
-                        // Estrutura para dados de insurance
-                        typedef struct {
-                            float aces_percentage;
-                            int32_t ace_upcard;
-                            int32_t dealer_bj;
-                            uint32_t checksum;
-                        } InsuranceBinaryRecord;
-                        
                         InsuranceBinaryRecord record;
                         record.aces_percentage = (float)aces_percentage;
-                        record.ace_upcard = 1; // Sempre 1 quando dealer tem Ás
-                        record.dealer_bj = dealer_info.blackjack ? 1 : 0;
-                        
-                        // Calcular checksum
-                        uint32_t checksum = 0;
-                        uint32_t float_as_uint;
-                        memcpy(&float_as_uint, &record.aces_percentage, sizeof(float));
-                        checksum ^= float_as_uint;
-                        checksum ^= (uint32_t)record.ace_upcard;
-                        checksum ^= (uint32_t)record.dealer_bj;
-                        record.checksum = checksum;
+                        record.dealer_blackjack = dealer_info.blackjack ? 1 : 0;
+                        record.checksum = calculate_insurance_checksum(&record);
                         
                         // Proteger escrita com mutex
                         if (insurance_mutex) {

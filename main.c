@@ -1023,9 +1023,9 @@ void process_insurance_data(int num_sims, const char* output_suffix) {
         int total_ace_upcards;
         int dealer_blackjacks;
         double blackjack_frequency;
-    } InsuranceBinData;
+    } InsuranceBin;
     
-    InsuranceBinData bins[NUM_INSURANCE_BINS];
+    InsuranceBin bins[NUM_INSURANCE_BINS];
     
     // Inicializar bins
     for (int i = 0; i < NUM_INSURANCE_BINS; i++) {
@@ -1036,61 +1036,60 @@ void process_insurance_data(int num_sims, const char* output_suffix) {
         bins[i].blackjack_frequency = 0.0;
     }
     
-    // Processar arquivos temporários de insurance
-    for (int sim = 0; sim < num_sims; sim++) {
+    // Calcular número de lotes
+    int num_batches = (num_sims + 19999) / 20000; // Arredondar para cima
+    
+    printf("Processando %d lotes de insurance...\n", num_batches);
+    
+    // Processar cada lote
+    for (int batch = 0; batch < num_batches; batch++) {
         char temp_filename[512];
-        snprintf(temp_filename, sizeof(temp_filename), "%s/temp_insurance_batch_%d.bin", OUT_DIR, sim);
+        snprintf(temp_filename, sizeof(temp_filename), "%s%d%s", INSURANCE_TEMP_FILE_PREFIX, batch, BINARY_SUFFIX);
         
-        FILE* temp_file = fopen(temp_filename, "rb");
-        if (!temp_file) {
-            DEBUG_IO("Arquivo temporário de insurance não encontrado: %s", temp_filename);
+        DEBUG_IO("Processando arquivo insurance: %s", temp_filename);
+        
+        // Verificar integridade do arquivo
+        if (!verify_file_integrity(temp_filename, sizeof(InsuranceBinaryRecord))) {
+            DEBUG_IO("Arquivo %s falhou na verificação de integridade, pulando", temp_filename);
             continue;
         }
         
-        // Estrutura para dados de insurance
-        typedef struct {
-            float aces_percentage;
-            int32_t ace_upcard;
-            int32_t dealer_bj;
-            uint32_t checksum;
-        } InsuranceBinaryRecord;
+        FILE* temp_file = fopen(temp_filename, "rb");
+        if (!temp_file) {
+            DEBUG_IO("Não foi possível abrir arquivo: %s", temp_filename);
+            continue;
+        }
         
+        int records_processed = 0;
+        int valid_records = 0;
         InsuranceBinaryRecord record;
+        
         while (fread(&record, sizeof(record), 1, temp_file) == 1) {
-            // Validar checksum
-            uint32_t calculated_checksum = 0;
-            uint32_t float_as_uint;
-            memcpy(&float_as_uint, &record.aces_percentage, sizeof(float));
-            calculated_checksum ^= float_as_uint;
-            calculated_checksum ^= (uint32_t)record.ace_upcard;
-            calculated_checksum ^= (uint32_t)record.dealer_bj;
+            records_processed++;
             
-            if (calculated_checksum != record.checksum) {
-                DEBUG_IO("Checksum inválido no registro de insurance");
+            // Validar usando a função robusta
+            if (!validate_insurance_record(&record)) {
+                DEBUG_STATS("Registro insurance inválido no lote %d, posição %d", batch, records_processed);
                 continue;
             }
             
+            valid_records++;
+            
+            // Calcular bin baseado na porcentagem de Áses
             double percentage = (double)record.aces_percentage;
+            int bin_idx = (int)((percentage - MIN_PERCENTAGE) / INSURANCE_BIN_WIDTH);
             
-            // Encontrar bin correspondente
-            int bin_idx = -1;
-            for (int i = 0; i < NUM_INSURANCE_BINS; i++) {
-                if (percentage >= bins[i].percentage_min && percentage < bins[i].percentage_max) {
-                    bin_idx = i;
-                    break;
-                }
-            }
-            
-            if (bin_idx >= 0 && record.ace_upcard) {
+            if (bin_idx >= 0 && bin_idx < NUM_INSURANCE_BINS) {
                 bins[bin_idx].total_ace_upcards++;
-                if (record.dealer_bj) {
-                    bins[bin_idx].dealer_blackjacks++;
-                }
+                bins[bin_idx].dealer_blackjacks += record.dealer_blackjack;
             }
         }
         
         fclose(temp_file);
         unlink(temp_filename); // Remover arquivo temporário
+        
+        DEBUG_STATS("Lote %d de insurance processado: %d registros lidos, %d válidos", 
+                   batch, records_processed, valid_records);
     }
     
     // Calcular frequências
@@ -1100,7 +1099,7 @@ void process_insurance_data(int num_sims, const char* output_suffix) {
         }
     }
     
-    // Salvar CSV
+    // Gerar CSV final
     char csv_filename[512];
     if (output_suffix) {
         snprintf(csv_filename, sizeof(csv_filename), "%s/insurance_analysis_%s.csv", OUT_DIR, output_suffix);
@@ -1110,7 +1109,7 @@ void process_insurance_data(int num_sims, const char* output_suffix) {
     
     FILE* csv_file = fopen(csv_filename, "w");
     if (!csv_file) {
-        fprintf(stderr, "Erro ao criar arquivo CSV de insurance: %s\n", csv_filename);
+        perror("fopen insurance csv");
         return;
     }
     
@@ -1121,13 +1120,14 @@ void process_insurance_data(int num_sims, const char* output_suffix) {
     for (int i = 0; i < NUM_INSURANCE_BINS; i++) {
         fprintf(csv_file, "%.3f,%.3f,%d,%d,%.6f\n",
                 bins[i].percentage_min * 100.0, // Converter para porcentagem
-                bins[i].percentage_max * 100.0,
+                bins[i].percentage_max * 100.0, // Converter para porcentagem
                 bins[i].total_ace_upcards,
                 bins[i].dealer_blackjacks,
                 bins[i].blackjack_frequency);
     }
     
     fclose(csv_file);
+    
     printf("Análise de insurance salva em: %s\n", csv_filename);
 }
 

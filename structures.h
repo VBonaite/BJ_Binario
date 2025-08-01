@@ -24,6 +24,7 @@
 #define DEALER_TEMP_FILE_PREFIX "temp_dealer_bj_batch_"
 #define FREQ_TEMP_FILE_PREFIX "temp_freq_batch_"
 #define SPLIT_TEMP_FILE_PREFIX "temp_split_batch_"
+#define INSURANCE_TEMP_FILE_PREFIX "temp_insurance_batch_"
 #define BINARY_SUFFIX ".bin"
 
 // Buffer sizes seguros
@@ -93,6 +94,13 @@ typedef struct {
     uint32_t checksum;     // 4 bytes - para integridade
 } __attribute__((packed)) SplitBinaryRecord;   // 48 bytes total
 
+// Estrutura para dados de insurance (12 bytes)
+typedef struct {
+    float aces_percentage; // 4 bytes - porcentagem de Áses no shoe
+    int32_t dealer_blackjack; // 4 bytes - 1 se dealer tem blackjack, 0 caso contrário
+    uint32_t checksum;     // 4 bytes - para integridade
+} __attribute__((packed)) InsuranceBinaryRecord;  // 12 bytes total
+
 // Funções de utilidade para checksum (safe para strict aliasing)
 static inline uint32_t calculate_dealer_checksum(const DealerBinaryRecord* record) {
     uint32_t checksum = 0;
@@ -125,6 +133,15 @@ static inline uint32_t calculate_split_checksum(const SplitBinaryRecord* record)
     checksum ^= (uint32_t)record->push_lose;
     checksum ^= (uint32_t)record->push_win;
     checksum ^= (uint32_t)record->cards_used;
+    return checksum;
+}
+
+static inline uint32_t calculate_insurance_checksum(const InsuranceBinaryRecord* record) {
+    uint32_t checksum = 0;
+    uint32_t float_as_uint;
+    memcpy(&float_as_uint, &record->aces_percentage, sizeof(float));
+    checksum ^= float_as_uint;
+    checksum ^= (uint32_t)record->dealer_blackjack;
     return checksum;
 }
 
@@ -249,6 +266,32 @@ static inline bool validate_split_record(const SplitBinaryRecord* record) {
     // Exatamente uma combinação deve ser 1
     if (total_combinations != 1) {
         DEBUG_STATS("Total de combinações inválido: %d (deve ser 1)", total_combinations);
+        return false;
+    }
+    
+    return true;
+}
+
+static inline bool validate_insurance_record(const InsuranceBinaryRecord* record) {
+    if (!record) return false;
+    
+    // Verificar checksum
+    uint32_t expected_checksum = calculate_insurance_checksum(record);
+    if (record->checksum != expected_checksum) {
+        DEBUG_STATS("Checksum inválido para insurance record: esperado=%u, encontrado=%u", 
+                   expected_checksum, record->checksum);
+        return false;
+    }
+    
+    // Validar porcentagem de Áses (0% a 100%)
+    if (record->aces_percentage < 0.0f || record->aces_percentage > 1.0f) {
+        DEBUG_STATS("Porcentagem de Áses inválida: %.6f", record->aces_percentage);
+        return false;
+    }
+    
+    // Validar flag de blackjack (0 ou 1)
+    if (record->dealer_blackjack != 0 && record->dealer_blackjack != 1) {
+        DEBUG_STATS("Flag de blackjack inválida: %d", record->dealer_blackjack);
         return false;
     }
     
