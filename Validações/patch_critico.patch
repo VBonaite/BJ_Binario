@@ -1,0 +1,138 @@
+--- structures.h.original	2024-07-16 10:00:00.000000000 +0000
++++ structures.h	2024-07-16 11:00:00.000000000 +0000
+@@ -15,9 +15,9 @@
+ #define LOG_BATCH_SIZE 20000        // Padronizado: 20k simulações por lote
+ 
+ // Constantes para análise
+-#define MAX_BINS 130               // -6.5 a 6.5 com bins de 0.1 = 130 bins
++#define MAX_BINS 300               // -15.0 a 15.0 com bins de 0.1 = 300 bins
+ #define BIN_WIDTH 0.1
+-#define MIN_TC -6.5
+-#define MAX_TC 6.5
++#define MIN_TC -15.0
++#define MAX_TC 15.0
+ 
+ // Prefixos para arquivos temporários
+ #define DEALER_TEMP_FILE_PREFIX "temp_dealer_bj_batch_"
+@@ -180,6 +180,15 @@
+ // Função robusta para cálculo de bins
+ static inline int get_bin_index_robust(double true_count) {
+     DEBUG_STATS("Calculando bin para TC=%.6f", true_count);
++    
++    // Clampar valores extremos
++    if (true_count < MIN_TC) {
++        DEBUG_STATS("TC %.6f abaixo do mínimo %.1f, usando bin 0", true_count, MIN_TC);
++        return 0;
++    }
++    if (true_count >= MAX_TC) {
++        DEBUG_STATS("TC %.6f acima do máximo %.1f, usando bin %d", true_count, MAX_TC, MAX_BINS-1);
++        return MAX_BINS - 1;
++    }
+     
+     int bin_idx = (int)((true_count - MIN_TC) / BIN_WIDTH);
+     
+@@ -187,6 +196,12 @@
+     if (bin_idx < 0) bin_idx = 0;
+     if (bin_idx >= MAX_BINS) bin_idx = MAX_BINS - 1;
+     
++    DEBUG_STATS("TC %.6f -> bin %d (range: %.2f a %.2f)", 
++               true_count, bin_idx, 
++               MIN_TC + bin_idx * BIN_WIDTH, 
++               MIN_TC + (bin_idx + 1) * BIN_WIDTH);
++    
+     return bin_idx;
+ }
+
+--- simulacao.c.original	2024-07-16 10:00:00.000000000 +0000
++++ simulacao.c	2024-07-16 11:00:00.000000000 +0000
+@@ -2950,6 +2950,23 @@
+     }
+     
+     DEBUG_PRINT("Simulação %d concluída com sucesso", sim_id);
++    
++    // CORREÇÃO CRÍTICA: Forçar flush de todos os buffers no final
++    DEBUG_STATS("Forçando flush final de buffers para sim %d", sim_id);
++    
++    if (freq_buffer_count > 0) {
++        DEBUG_STATS("Flush final: %d registros de frequência pendentes", freq_buffer_count);
++        flush_freq_buffer();
++    }
++    
++    if (dealer_buffer_count > 0) {
++        DEBUG_STATS("Flush final: %d registros de dealer pendentes", dealer_buffer_count);
++        flush_dealer_buffer();
++    }
++    
++    if (log_buffer_count > 0) {
++        DEBUG_STATS("Flush final: %d registros de log pendentes", log_buffer_count);
++        flush_log_buffer(log_mutex);
++    }
+ }
+
+--- main.c.original	2024-07-16 10:00:00.000000000 +0000
++++ main.c	2024-07-16 11:00:00.000000000 +0000
+@@ -650,8 +650,35 @@
+         for (int batch = 0; batch < num_batches; batch++) {
+             char total_filename[512];
+             snprintf(total_filename, sizeof(total_filename), "temp_total_upcard_%d_batch_%d", upcard, batch);
+             
+-            CompressedReader* reader = compressed_file_open_read(total_filename);
+-            if (!reader) continue;
++            // CORREÇÃO CRÍTICA: Tentar diferentes extensões de arquivo
++            CompressedReader* reader = NULL;
++            const char* extensions[] = {"", ".bin", ".lz4", ".tmp"};
++            int num_extensions = sizeof(extensions) / sizeof(extensions[0]);
++            
++            for (int ext = 0; ext < num_extensions && reader == NULL; ext++) {
++                char full_filename[512];
++                snprintf(full_filename, sizeof(full_filename), "%s%s", total_filename, extensions[ext]);
++                
++                DEBUG_IO("Tentando abrir arquivo: %s", full_filename);
++                
++                if (access(full_filename, F_OK) == 0) {
++                    reader = compressed_file_open_read(full_filename);
++                    if (reader) {
++                        DEBUG_IO("Arquivo aberto com sucesso: %s", full_filename);
++                        break;
++                    } else {
++                        DEBUG_IO("Falha ao abrir arquivo existente: %s", full_filename);
++                    }
++                } else {
++                    DEBUG_IO("Arquivo não existe: %s", full_filename);
++                }
++            }
++            
++            if (!reader) {
++                DEBUG_IO("ERRO: Não foi possível abrir nenhuma variação do arquivo: %s", total_filename);
++                continue;
++            }
+             
+             FreqBinaryRecord record;
+             while (compressed_file_read(reader, &record, sizeof(record)) == sizeof(record)) {
+@@ -1500,6 +1527,25 @@
+     
+     // Estatísticas finais
+     printf("Simulação concluída!\n");
++    
++    // CORREÇÃO CRÍTICA: Verificar integridade dos dados antes do processamento
++    printf("\n=== VERIFICAÇÃO DE INTEGRIDADE ===\n");
++    int temp_files_found = 0;
++    int num_batches_check = (num_sims + 19999) / 20000;
++    
++    for (int batch = 0; batch < num_batches_check; batch++) {
++        char pattern[256];
++        snprintf(pattern, sizeof(pattern), "temp_*_batch_%d*", batch);
++        // Usar system() para contar arquivos (método simples)
++        char cmd[512];
++        snprintf(cmd, sizeof(cmd), "ls %s 2>/dev/null | wc -l", pattern);
++        FILE* fp = popen(cmd, "r");
++        if (fp) {
++            fscanf(fp, "%d", &temp_files_found);
++            pclose(fp);
++        }
++    }
++    printf("Arquivos temporários encontrados: %d\n", temp_files_found);
+     printf("  Tempo total: %.2f segundos\n", total_time);
+     printf("  Taxa: %.1f simulações/segundo\n", num_sims / total_time);
+     printf("  Jogos processados: %lld\n", (long long)num_sims * NUM_SHOES);
+
