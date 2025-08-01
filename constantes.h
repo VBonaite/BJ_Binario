@@ -13,6 +13,7 @@ extern const int NUM_SIMS;
 extern const char* OUT_DIR;
 extern const double WONG_HALVES[13];
 extern const double MIN_COUNT_INS;
+extern const double A_perc;
 
 // Constantes para sistema de apostas
 extern const double BANKROLL_INICIAL;

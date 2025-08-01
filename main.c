@@ -125,6 +125,8 @@ typedef struct {
     pthread_mutex_t* dealer_mutex;
     pthread_mutex_t* freq_mutex;
     pthread_mutex_t* split_mutex;
+    bool insurance_analysis;
+    pthread_mutex_t* insurance_mutex;
     // Cache line padding para evitar false sharing
     char padding[64];
 } __attribute__((aligned(64))) ThreadData;
@@ -315,7 +317,7 @@ void* worker_thread(void* arg) {
     const int update_interval = 100; // Atualizar progresso a cada 100 simulações
     
     for (int i = data->sim_start; i < data->sim_end; ++i) {
-        simulacao_completa(data->log_level, i, data->output_suffix, data->global_log_count, data->dealer_analysis, data->freq_analysis_26, data->freq_analysis_70, data->freq_analysis_A, data->split_analysis, data->ev_realtime_enabled, data->dealer_mutex, data->freq_mutex, data->split_mutex);
+        simulacao_completa(data->log_level, i, data->output_suffix, data->global_log_count, data->dealer_analysis, data->freq_analysis_26, data->freq_analysis_70, data->freq_analysis_A, data->split_analysis, data->ev_realtime_enabled, data->dealer_mutex, data->freq_mutex, data->split_mutex, data->insurance_analysis, data->insurance_mutex);
         
         local_completed++;
         
@@ -373,6 +375,7 @@ void print_usage(const char* program_name) {
     printf("  -histA      Ativar análise de frequência para upcard A do dealer\n");
     printf("  -split      Ativar análise de resultados de splits\n");
     printf("  -ev         Ativar EV em tempo real (desativado por padrão)\n");
+    printf("  -ins        Ativar análise de insurance\n");
     printf("  -h          Mostrar esta ajuda\n\n");
     printf("Exemplos:\n");
     printf("  %s -l 0 -n 1000        # Rodar 1000 simulações sem log\n", program_name);
@@ -385,6 +388,7 @@ void print_usage(const char* program_name) {
     printf("  %s -histA -n 10000 -o analysis # Análise de frequência A vs TC\n", program_name);
     printf("  %s -split -n 50000 -o split_test # Análise de resultados de splits\n", program_name);
     printf("  %s -ev -n 10000 -o ev_test # Usar EV em tempo real\n", program_name);
+    printf("  %s -ins -n 10000 -o ins_test # Análise de insurance\n", program_name);
 }
 
 // Função para concatenar arquivos de log e limpar arquivos individuais
@@ -998,6 +1002,135 @@ void concatenate_and_cleanup_logs(int num_sims, const char* output_suffix) {
     fclose(final_file);
 }
 
+void process_insurance_data(int num_sims, const char* output_suffix) {
+    printf("Processando dados de análise de insurance...\n");
+    
+    // Criar diretório se não existir
+    struct stat st = {0};
+    if (stat(OUT_DIR, &st) == -1) {
+        mkdir(OUT_DIR, 0700);
+    }
+    
+    // Definir bins para porcentagem de Áses (0% a 20% em bins de 0.1%)
+    const int NUM_INSURANCE_BINS = 201; // (20% - 0%) / 0.1% = 200 bins + 1
+    const double INSURANCE_BIN_WIDTH = 0.001; // 0.1%
+    const double MIN_PERCENTAGE = 0.00; // 0%
+    const double MAX_PERCENTAGE = 0.20; // 20%
+    
+    typedef struct {
+        double percentage_min;
+        double percentage_max;
+        int total_ace_upcards;
+        int dealer_blackjacks;
+        double blackjack_frequency;
+    } InsuranceBinData;
+    
+    InsuranceBinData bins[NUM_INSURANCE_BINS];
+    
+    // Inicializar bins
+    for (int i = 0; i < NUM_INSURANCE_BINS; i++) {
+        bins[i].percentage_min = MIN_PERCENTAGE + i * INSURANCE_BIN_WIDTH;
+        bins[i].percentage_max = MIN_PERCENTAGE + (i + 1) * INSURANCE_BIN_WIDTH;
+        bins[i].total_ace_upcards = 0;
+        bins[i].dealer_blackjacks = 0;
+        bins[i].blackjack_frequency = 0.0;
+    }
+    
+    // Processar arquivos temporários de insurance
+    for (int sim = 0; sim < num_sims; sim++) {
+        char temp_filename[512];
+        snprintf(temp_filename, sizeof(temp_filename), "%s/temp_insurance_batch_%d.bin", OUT_DIR, sim);
+        
+        FILE* temp_file = fopen(temp_filename, "rb");
+        if (!temp_file) {
+            DEBUG_IO("Arquivo temporário de insurance não encontrado: %s", temp_filename);
+            continue;
+        }
+        
+        // Estrutura para dados de insurance
+        typedef struct {
+            float aces_percentage;
+            int32_t ace_upcard;
+            int32_t dealer_bj;
+            uint32_t checksum;
+        } InsuranceBinaryRecord;
+        
+        InsuranceBinaryRecord record;
+        while (fread(&record, sizeof(record), 1, temp_file) == 1) {
+            // Validar checksum
+            uint32_t calculated_checksum = 0;
+            uint32_t float_as_uint;
+            memcpy(&float_as_uint, &record.aces_percentage, sizeof(float));
+            calculated_checksum ^= float_as_uint;
+            calculated_checksum ^= (uint32_t)record.ace_upcard;
+            calculated_checksum ^= (uint32_t)record.dealer_bj;
+            
+            if (calculated_checksum != record.checksum) {
+                DEBUG_IO("Checksum inválido no registro de insurance");
+                continue;
+            }
+            
+            double percentage = (double)record.aces_percentage;
+            
+            // Encontrar bin correspondente
+            int bin_idx = -1;
+            for (int i = 0; i < NUM_INSURANCE_BINS; i++) {
+                if (percentage >= bins[i].percentage_min && percentage < bins[i].percentage_max) {
+                    bin_idx = i;
+                    break;
+                }
+            }
+            
+            if (bin_idx >= 0 && record.ace_upcard) {
+                bins[bin_idx].total_ace_upcards++;
+                if (record.dealer_bj) {
+                    bins[bin_idx].dealer_blackjacks++;
+                }
+            }
+        }
+        
+        fclose(temp_file);
+        unlink(temp_filename); // Remover arquivo temporário
+    }
+    
+    // Calcular frequências
+    for (int i = 0; i < NUM_INSURANCE_BINS; i++) {
+        if (bins[i].total_ace_upcards > 0) {
+            bins[i].blackjack_frequency = (double)bins[i].dealer_blackjacks / bins[i].total_ace_upcards;
+        }
+    }
+    
+    // Salvar CSV
+    char csv_filename[512];
+    if (output_suffix) {
+        snprintf(csv_filename, sizeof(csv_filename), "%s/insurance_analysis_%s.csv", OUT_DIR, output_suffix);
+    } else {
+        snprintf(csv_filename, sizeof(csv_filename), "%s/insurance_analysis.csv", OUT_DIR);
+    }
+    
+    FILE* csv_file = fopen(csv_filename, "w");
+    if (!csv_file) {
+        fprintf(stderr, "Erro ao criar arquivo CSV de insurance: %s\n", csv_filename);
+        return;
+    }
+    
+    // Cabeçalho
+    fprintf(csv_file, "Percentage_Min,Percentage_Max,Total_Ace_Upcards,Dealer_Blackjacks,Blackjack_Frequency\n");
+    
+    // Dados
+    for (int i = 0; i < NUM_INSURANCE_BINS; i++) {
+        fprintf(csv_file, "%.3f,%.3f,%d,%d,%.6f\n",
+                bins[i].percentage_min * 100.0, // Converter para porcentagem
+                bins[i].percentage_max * 100.0,
+                bins[i].total_ace_upcards,
+                bins[i].dealer_blackjacks,
+                bins[i].blackjack_frequency);
+    }
+    
+    fclose(csv_file);
+    printf("Análise de insurance salva em: %s\n", csv_filename);
+}
+
 int main(int argc, char* argv[]) {
     int log_level = 0;
     int num_sims = NUM_SIMS;
@@ -1009,6 +1142,7 @@ int main(int argc, char* argv[]) {
     bool freq_analysis_A = false;  // Análise frequência upcard A
     bool split_analysis = false;   // Análise de resultados de splits
     bool ev_realtime_enabled = false; // EV em tempo real desativado por padrão
+    bool insurance_analysis = false; // Análise de insurance desativada por padrão
     
     // Processar argumentos da linha de comando
     for (int i = 1; i < argc; i++) {
@@ -1030,6 +1164,9 @@ int main(int argc, char* argv[]) {
         } else if (strcmp(argv[i], "-ev") == 0) {
             ev_realtime_enabled = true;
             DEBUG_PRINT("EV em tempo real ativado");
+        } else if (strcmp(argv[i], "-ins") == 0) {
+            insurance_analysis = true;
+            DEBUG_PRINT("Análise de insurance ativada");
         } else if (strcmp(argv[i], "-l") == 0 && i + 1 < argc) {
             log_level = atoi(argv[++i]);
             if (log_level < 0) {
@@ -1099,6 +1236,15 @@ int main(int argc, char* argv[]) {
         }
     }
     
+    // Mutex para proteger escritas nos arquivos de insurance
+    pthread_mutex_t insurance_mutex;
+    if (insurance_analysis) {
+        if (pthread_mutex_init(&insurance_mutex, NULL) != 0) {
+            fprintf(stderr, "Erro ao inicializar mutex de insurance\n");
+            return 1;
+        }
+    }
+    
     // Mostrar configuração
     printf("Simulador de Blackjack - Configuração:\n");
     printf("  Simulações: %d\n", num_sims);
@@ -1111,6 +1257,7 @@ int main(int argc, char* argv[]) {
     printf("  Análise frequência 7-10: %s\n", freq_analysis_70 ? "ATIVADA" : "DESATIVADA");
     printf("  Análise frequência A: %s\n", freq_analysis_A ? "ATIVADA" : "DESATIVADA");
     printf("  Análise de splits: %s\n", split_analysis ? "ATIVADA" : "DESATIVADA");
+    printf("  Análise de insurance: %s\n", insurance_analysis ? "ATIVADA" : "DESATIVADA");
     if (output_suffix) {
         printf("  Sufixo de saída: %s\n", output_suffix);
     }
@@ -1169,6 +1316,8 @@ int main(int argc, char* argv[]) {
         thread_data[i].freq_mutex = any_freq_analysis ? &freq_mutex : NULL;
 
         thread_data[i].split_mutex = split_analysis ? &split_mutex : NULL;
+        thread_data[i].insurance_analysis = insurance_analysis;
+        thread_data[i].insurance_mutex = insurance_analysis ? &insurance_mutex : NULL;
         
         sim_offset = thread_data[i].sim_end;
         
@@ -1210,6 +1359,12 @@ int main(int argc, char* argv[]) {
         process_split_data(num_sims, output_suffix);
     }
     
+    // Processar dados de insurance se solicitado
+    if (insurance_analysis) {
+        printf("Processando dados de análise de insurance...\n");
+        process_insurance_data(num_sims, output_suffix);
+    }
+    
     // Análise de bust obsoleta removida
     
     // Estatísticas finais
@@ -1247,6 +1402,10 @@ int main(int argc, char* argv[]) {
 
     if (split_analysis) {
         pthread_mutex_destroy(&split_mutex);
+    }
+
+    if (insurance_analysis) {
+        pthread_mutex_destroy(&insurance_mutex);
     }
     
     // FINALIZAR SISTEMA DE EV EM TEMPO REAL

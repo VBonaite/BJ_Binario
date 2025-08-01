@@ -23,23 +23,24 @@ const double WONG_HALVES[13] = {
     -1.0, // K
     -1.0  // A
 };
-const double MIN_COUNT_INS = 3.7;
 
 // Constantes para sistema de apostas
 const double BANKROLL_INICIAL = 7500.0;
 const double UNIDADE_INICIAL = 5.0;
+
+const double MIN_COUNT_INS = 3.7;
+const double A_perc = 0.10;  // 10% - porcentagem mínima de Áses para insurance
+
+const int CARTAS_RESTANTES_LIMITE = 412;
+const int CARTAS_RESTANTES_SHOE_OK = 296;
 
 // Parâmetros para definir_aposta (12 blocos de condições)
 const double MIN_PCT[12] = {
     9.96, 17.92, 19.83, 26.72, 27.94, 23.51, 28.06, 30.923, 33.81, 36.37, 40.70, 45.32
 };
 
-
-
-
 const int MIN_LEN_SHOE[12] = {
-    292, 316, 318, 328, 353, 384, 
-    390,400, 417, 428, 448, 452
+    292, 316, 318, 328, 353, 384, 390,400, 417, 428, 448, 452
 };
 
 const double MIN_TRUE_COUNT[12] = {
@@ -50,7 +51,6 @@ const double MIN_TRUE_COUNT[12] = {
 const double TC_MAOS_CONTAB[3] = {
     0.95, 1.95, 2.87
 };
-
 
 const double TC_AJUSTA_UNIDADES[10] = {
     0.16, 0.61, 0.71, 1.66, 2.01, 2.27, 3.43, 3.76, 3.65, 4.52
@@ -63,9 +63,6 @@ const double APOSTAS_BASE_AJUSTE[10] = {
 const double APOSTAS_BASE[12] = {
     35.00, 25.00, 17.00, 16.00, 12.00, 12.00, 12.00, 5.00, 4.00, 3.00, 2.00, 1.00
 };
-
-const int CARTAS_RESTANTES_LIMITE = 412;
-const int CARTAS_RESTANTES_SHOE_OK = 296;
 
 // Variável global para acumular unidades totais (protegida por mutex)
 double unidades_total_global = 0.0;
