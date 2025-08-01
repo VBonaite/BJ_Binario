@@ -1,0 +1,42 @@
+# Arquivos compilados
+*.o
+*.exe
+*.out
+blackjack_sim
+
+# Arquivos de dados gerados
+*.csv
+*.txt
+*.log
+
+# Diretórios de resultados (exceto estrutura)
+Resultados/*.csv
+Resultados/*.png
+Resultados/*.txt
+
+# Arquivos temporários
+*.tmp
+*.temp
+*~
+
+# Arquivos do sistema
+.DS_Store
+Thumbs.db
+
+# Arquivos de IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Arquivos de backup
+*_backup_*/
+backup/
+
+# Arquivos de teste
+test_*
+*_test
+
+# Arquivos de configuração local
+config.local
+.env 

@@ -18,10 +18,21 @@ typedef enum {
     ACAO_SPLIT_OR_STAND
 } AcaoEstrategia;
 
-// rank_upcard: 2-11 (onde 11 = A)
-AcaoEstrategia estrategia_hard(int total, int rank_upcard);
-AcaoEstrategia estrategia_soft(int total, int rank_upcard);
-AcaoEstrategia estrategia_par(int par_rank, int rank_upcard);
+// Estrutura para estratégia básica com chaves numéricas
+typedef struct {
+    uint32_t chave;        // Chave numérica (valor*100 + dealer_up)
+    AcaoEstrategia acao;   // Ação da estratégia básica
+} EstrategiaBasicaChave;
+
+// Funções da estratégia básica (antigas - compatibilidade)
+AcaoEstrategia estrategia_hard(int valor, int dealer_up);
+AcaoEstrategia estrategia_soft(int valor, int dealer_up);
+AcaoEstrategia estrategia_par(int par_rank, int dealer_up);
+
+// Função da estratégia básica SUPER-OTIMIZADA (única função utilizada)
+AcaoEstrategia estrategia_basica_super_rapida(uint64_t mao_bits, int dealer_up_rank);
+
+// NOTA: buscar_estrategia_por_chave() foi removida pois não era utilizada
 
 #ifdef __cplusplus
 }
