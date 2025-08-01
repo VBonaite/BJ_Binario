@@ -1011,19 +1011,19 @@ void process_insurance_data(int num_sims, const char* output_suffix) {
         mkdir(OUT_DIR, 0700);
     }
     
-    // Definir bins para porcentagem de Áses (0% a 20% em bins de 0.1%)
-    const int NUM_INSURANCE_BINS = 201; // (20% - 0%) / 0.1% = 200 bins + 1
+    // Definir bins para porcentagem de cartas de rank 10 (30% a 40% em bins de 0.1%)
+    const int NUM_INSURANCE_BINS = 101; // (40% - 30%) / 0.1% = 100 bins + 1
     const double INSURANCE_BIN_WIDTH = 0.001; // 0.1%
-    const double MIN_PERCENTAGE = 0.00; // 0%
-    const double MAX_PERCENTAGE = 0.20; // 20%
+    const double MIN_PERCENTAGE = 0.30; // 30%
+
     
-    typedef struct {
-        double percentage_min;
-        double percentage_max;
-        int total_ace_upcards;
-        int dealer_blackjacks;
-        double blackjack_frequency;
-    } InsuranceBin;
+                typedef struct {
+                double percentage_min;
+                double percentage_max;
+                int total_ace_upcards;
+                int dealer_blackjacks;
+                double blackjack_frequency;
+            } InsuranceBin;
     
     InsuranceBin bins[NUM_INSURANCE_BINS];
     
@@ -1075,8 +1075,8 @@ void process_insurance_data(int num_sims, const char* output_suffix) {
             
             valid_records++;
             
-            // Calcular bin baseado na porcentagem de Áses
-            double percentage = (double)record.aces_percentage;
+            // Calcular bin baseado na porcentagem de cartas de rank 10
+            double percentage = (double)record.ten_cards_percentage;
             int bin_idx = (int)((percentage - MIN_PERCENTAGE) / INSURANCE_BIN_WIDTH);
             
             if (bin_idx >= 0 && bin_idx < NUM_INSURANCE_BINS) {
@@ -1274,7 +1274,7 @@ int main(int argc, char* argv[]) {
     
     // INICIALIZAR SISTEMA DE EV EM TEMPO REAL
     printf("🚀 Inicializando sistema de EV em tempo real...\n");
-    init_realtime_strategy_system();
+    init_realtime_strategy_system(ev_realtime_enabled);
     printf("\n");
     
     // Iniciar cronômetro

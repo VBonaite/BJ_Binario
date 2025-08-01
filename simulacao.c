@@ -39,6 +39,45 @@ typedef struct {
     int dealer_bj;
 } DealerBufferEntry;
 
+// Buffer para insurance (similar ao dealer buffer)
+#define INSURANCE_BUFFER_THRESHOLD 1000
+
+typedef struct {
+    float ten_cards_percentage;
+    int dealer_blackjack;
+} InsuranceBufferEntry;
+
+static InsuranceBufferEntry insurance_buffer[INSURANCE_BUFFER_THRESHOLD];
+static int insurance_buffer_count = 0;
+static int current_sim_id = 0;
+
+static void set_insurance_sim_id(int sim_id) {
+    current_sim_id = sim_id;
+}
+
+static void flush_insurance_buffer() {
+    if (insurance_buffer_count == 0) return;
+    
+    // Calcular qual lote esta simulação pertence
+    int batch_id = current_sim_id / 20000;
+    char insurance_filepath[512];
+    snprintf(insurance_filepath, sizeof(insurance_filepath), "%s%d%s", INSURANCE_TEMP_FILE_PREFIX, batch_id, BINARY_SUFFIX);
+    
+    FILE* insurance_file = fopen(insurance_filepath, "ab");
+    if (insurance_file) {
+        for (int i = 0; i < insurance_buffer_count; i++) {
+            InsuranceBinaryRecord record;
+            record.ten_cards_percentage = insurance_buffer[i].ten_cards_percentage;
+            record.dealer_blackjack = insurance_buffer[i].dealer_blackjack;
+            record.checksum = calculate_insurance_checksum(&record);
+            fwrite(&record, sizeof(record), 1, insurance_file);
+        }
+        fclose(insurance_file);
+    }
+    
+    insurance_buffer_count = 0;
+}
+
 static void adicionar_carta(uint64_t *mao, Carta c) {
     *mao += c; // incrementa o contador de 3 bits para o rank
 }
@@ -56,6 +95,8 @@ static void atualizar_counts(double *running_count, double *true_count, Carta c,
 // Função identificar_split_10_tipo removida - não utilizada no sistema atual
 
 void simulacao_completa(int log_level, int sim_id, const char* output_suffix, atomic_int* global_log_count, bool dealer_analysis, bool freq_analysis_26, bool freq_analysis_70, bool freq_analysis_A, bool split_analysis, bool ev_realtime_enabled, pthread_mutex_t* dealer_mutex, pthread_mutex_t* freq_mutex, pthread_mutex_t* split_mutex, bool insurance_analysis, pthread_mutex_t* insurance_mutex) {
+    // Configurar sim_id para insurance buffer
+    set_insurance_sim_id(sim_id);
     DEBUG_PRINT("Iniciando simulação %d", sim_id);
     
     FILE *log_file = NULL;
@@ -571,49 +612,32 @@ void simulacao_completa(int log_level, int sim_id, const char* output_suffix, at
                 maos_contabilizadas_count++;
             }
             
-            // Calcular porcentagem de Áses no baralho
-            int aces_count = shoe_counter.counts[12]; // Ás = índice 12
-            double aces_percentage = (double)aces_count / shoe_counter.total_cards;
+            // Calcular porcentagem de cartas de rank 10 no baralho (otimizado)
+            int ten_cards_count = shoe_counter.counts[8] + shoe_counter.counts[9] + 
+                                 shoe_counter.counts[10] + shoe_counter.counts[11]; // 10,J,Q,K
+            double ten_cards_percentage = (double)ten_cards_count / shoe_counter.total_cards;
             
-            if (dealer_up_rank == 11 && true_count >= MIN_COUNT_INS && maos_contabilizadas_count > 0 && aces_percentage >= A_perc) {
+            if (dealer_up_rank == 11 && true_count >= MIN_COUNT_INS && maos_contabilizadas_count > 0 && ten_cards_percentage >= TEN_perc) {
                 insurance_bet = (bet / 2.0) * maos_contabilizadas_count;
                 made_insurance = true;
-                DEBUG_STATS("Insurance feito: %.2f unidades (A%%=%.2f%%)", insurance_bet, aces_percentage * 100.0);
+                DEBUG_STATS("Insurance feito: %.2f unidades (10%%=%.2f%%)", insurance_bet, ten_cards_percentage * 100.0);
             }
 
             // Verificar se upcard é Ás
             if (dealer_up_rank == 11) {
                 DEBUG_PRINT("Dealer tem upcard Ás - verificando blackjack");
                 
-                // Coletar dados de insurance se análise está ativada
+                // Coletar dados de insurance se análise está ativada - usando buffer otimizado
                 if (insurance_analysis) {
-                    // Calcular qual lote esta simulação pertence
-                    int batch_id = sim_id / 20000; // Usar batch size de 20k como outros
-                    char insurance_filepath[512];
-                    snprintf(insurance_filepath, sizeof(insurance_filepath), "%s%d%s", INSURANCE_TEMP_FILE_PREFIX, batch_id, BINARY_SUFFIX);
-                    
-                    FILE* insurance_file = fopen(insurance_filepath, "ab");
-                    if (insurance_file) {
-                        InsuranceBinaryRecord record;
-                        record.aces_percentage = (float)aces_percentage;
-                        record.dealer_blackjack = dealer_info.blackjack ? 1 : 0;
-                        record.checksum = calculate_insurance_checksum(&record);
+                    if (insurance_buffer_count < INSURANCE_BUFFER_THRESHOLD) {
+                        insurance_buffer[insurance_buffer_count].ten_cards_percentage = (float)ten_cards_percentage;
+                        insurance_buffer[insurance_buffer_count].dealer_blackjack = dealer_info.blackjack ? 1 : 0;
+                        insurance_buffer_count++;
                         
-                        // Proteger escrita com mutex
-                        if (insurance_mutex) {
-                            pthread_mutex_lock(insurance_mutex);
+                        // Flush buffer quando quase cheio
+                        if (insurance_buffer_count >= INSURANCE_BUFFER_THRESHOLD) {
+                            flush_insurance_buffer();
                         }
-                        
-                        fwrite(&record, sizeof(record), 1, insurance_file);
-                        
-                        if (insurance_mutex) {
-                            pthread_mutex_unlock(insurance_mutex);
-                        }
-                        
-                        fclose(insurance_file);
-                        
-                        DEBUG_STATS("Dados insurance salvos: A%%=%.2f%%, BJ=%d", 
-                                   aces_percentage * 100.0, dealer_info.blackjack ? 1 : 0);
                     }
                 }
                 
@@ -1168,6 +1192,10 @@ void simulacao_completa(int log_level, int sim_id, const char* output_suffix, at
     if (dealer_buffer_count > 0) {
         DEBUG_PRINT("Flush final do buffer de dealer");
         flush_dealer_buffer();
+    }
+    if (insurance_buffer_count > 0) {
+        DEBUG_PRINT("Flush final do buffer de insurance");
+        flush_insurance_buffer();
     }
     
     DEBUG_PRINT("Simulação %d concluída com sucesso", sim_id);

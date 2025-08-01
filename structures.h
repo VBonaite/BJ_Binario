@@ -96,7 +96,7 @@ typedef struct {
 
 // Estrutura para dados de insurance (12 bytes)
 typedef struct {
-    float aces_percentage; // 4 bytes - porcentagem de Áses no shoe
+    float ten_cards_percentage; // 4 bytes - porcentagem de cartas de rank 10 (10,J,Q,K) no shoe
     int32_t dealer_blackjack; // 4 bytes - 1 se dealer tem blackjack, 0 caso contrário
     uint32_t checksum;     // 4 bytes - para integridade
 } __attribute__((packed)) InsuranceBinaryRecord;  // 12 bytes total
@@ -139,7 +139,7 @@ static inline uint32_t calculate_split_checksum(const SplitBinaryRecord* record)
 static inline uint32_t calculate_insurance_checksum(const InsuranceBinaryRecord* record) {
     uint32_t checksum = 0;
     uint32_t float_as_uint;
-    memcpy(&float_as_uint, &record->aces_percentage, sizeof(float));
+    memcpy(&float_as_uint, &record->ten_cards_percentage, sizeof(float));
     checksum ^= float_as_uint;
     checksum ^= (uint32_t)record->dealer_blackjack;
     return checksum;
@@ -283,9 +283,9 @@ static inline bool validate_insurance_record(const InsuranceBinaryRecord* record
         return false;
     }
     
-    // Validar porcentagem de Áses (0% a 100%)
-    if (record->aces_percentage < 0.0f || record->aces_percentage > 1.0f) {
-        DEBUG_STATS("Porcentagem de Áses inválida: %.6f", record->aces_percentage);
+    // Validar porcentagem de cartas de rank 10 (0% a 100%)
+    if (record->ten_cards_percentage < 0.0f || record->ten_cards_percentage > 1.0f) {
+        DEBUG_STATS("Porcentagem de cartas de rank 10 inválida: %.6f", record->ten_cards_percentage);
         return false;
     }
     

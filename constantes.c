@@ -28,8 +28,8 @@ const double WONG_HALVES[13] = {
 const double BANKROLL_INICIAL = 7500.0;
 const double UNIDADE_INICIAL = 5.0;
 
-const double MIN_COUNT_INS = 3.7;
-const double A_perc = 0.10;  // 10% - porcentagem mínima de Áses para insurance
+const double MIN_COUNT_INS = 3.4;
+const double TEN_perc = 0.335;  
 
 const int CARTAS_RESTANTES_LIMITE = 412;
 const int CARTAS_RESTANTES_SHOE_OK = 296;

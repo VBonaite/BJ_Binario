@@ -11,21 +11,25 @@ RealtimeStrategyStats realtime_stats = {0};
 
 // ====================== INICIALIZAÇÃO DO SISTEMA ======================
 
-void init_realtime_strategy_system(void) {
+void init_realtime_strategy_system(bool load_lookup_tables) {
     printf("🚀 Inicializando sistema de EV em tempo real...\n");
     
     // Inicializar cache de EV
     init_ev_cache();
     
-    // Carregar tabelas de lookup se não estiverem carregadas
-    if (!split_ev_table_loaded) {
-        printf("   Carregando tabelas de split EV...\n");
-        load_split_ev_table("./Resultados");
-    }
-    
-    if (!dealer_freq_table_loaded) {
-        printf("   Carregando tabelas de frequência do dealer...\n");
-        load_dealer_freq_table("./Resultados");
+    // Carregar tabelas de lookup somente se solicitado
+    if (load_lookup_tables) {
+        if (!split_ev_table_loaded) {
+            printf("   Carregando tabelas de split EV...\n");
+            load_split_ev_table("./Resultados");
+        }
+        
+        if (!dealer_freq_table_loaded) {
+            printf("   Carregando tabelas de frequência do dealer...\n");
+            load_dealer_freq_table("./Resultados");
+        }
+    } else {
+        printf("   Tabelas de lookup: PULADAS (EV em tempo real desabilitado)\n");
     }
     
     // Resetar estatísticas

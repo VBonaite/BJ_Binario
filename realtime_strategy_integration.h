@@ -11,8 +11,8 @@
 // Flag global para habilitar/desabilitar cálculo em tempo real
 extern bool realtime_ev_enabled;
 
-// Sistema de inicialização
-void init_realtime_strategy_system(void);
+// Funções de inicialização e limpeza
+void init_realtime_strategy_system(bool load_lookup_tables);
 void cleanup_realtime_strategy_system(void);
 
 // Função principal que substitui determinar_acao() em jogo.c

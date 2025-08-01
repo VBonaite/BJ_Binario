@@ -1,5 +1,5 @@
 CC = gcc
-CFLAGS = -O3 -march=native -std=c11 -Wall -Wextra -flto -ffast-math -funroll-loops -msse2
+CFLAGS = -O3 -march=native -std=c11 -Wall -Wextra -flto -ffast-math -funroll-loops -msse2 -mavx2 -mtune=native -fomit-frame-pointer -DNDEBUG
 LDFLAGS = -lpthread -lm
 
 SOURCES = main.c baralho.c rng.c simulacao.c constantes.c jogo.c saidas.c tabela_estrategia.c split_ev_lookup.c dealer_freq_lookup.c shoe_counter.c ev_calculator.c real_time_ev.c realtime_strategy_integration.c
